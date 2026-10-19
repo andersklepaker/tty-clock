@@ -47,8 +47,22 @@ Switch time output to the 12\-hour format.
 .TP
 Q
 Quit.
+.TP
+P
+Toggle the Copilot usage display below the date.
 .SH "OPTIONS"
 .LP
+.TP
+\fB\-\-copilot\fR
+Show a Copilot consumption progress bar below the date, followed by actual
+usage and total allowance on a separate line. Uses the existing GitHub CLI
+authentication for github.com. Requires gh on PATH. Credit-based billing shows
+credits; legacy billing shows premium requests. Unlimited allowances have no
+percentage. Failed refreshes retain the last reading marked stale.
+.TP
+\fB\-\-copilot-refresh\fR \fIseconds\fR
+Set the background quota refresh interval (1 to 86400 seconds, default 60).
+Requests time out after 15 seconds. Does not enable the display by itself.
 .TP
 \fB\-s\fR
 Show seconds.
@@ -111,6 +125,10 @@ Set the delay (in seconds) between two redraws of the clock. Default 1s.
 \fB\-a\fR \fInsdelay\fR
 Additional delay (in nanoseconds) between two redraws of the clock. Default 0ns.
 .SH "EXAMPLES"
+.LP
+Show a centered clock with seconds and Copilot usage:
+.IP
+$ tty\-clock \-c \-s \-\-copilot
 .LP
 To invoke
 .I tty\-clock

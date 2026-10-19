@@ -1,4 +1,6 @@
-usage : tty-clock [-iuvsScbtrahDBxn] [-C [0-7]] [-f format] [-d delay] [-a nsdelay] [-T tty]
+usage : tty-clock [-iuvsScbtrahDBxn] [-C [0-7]] [-f format] [-d delay] [-a nsdelay] [-T tty] [--copilot] [--copilot-refresh seconds]
+    --copilot     Show Copilot usage below the date (P toggles)
+    --copilot-refresh seconds  Refresh interval, default 60 (1..86400)
     -s            Show seconds
     -S            Screensaver mode
     -x            Show box
@@ -18,3 +20,40 @@ usage : tty-clock [-iuvsScbtrahDBxn] [-C [0-7]] [-f format] [-d delay] [-a nsdel
     -B            Enable blinking colon
     -d delay      Set the delay between two redraws of the clock. Default 1s.
     -a nsdelay    Additional delay between two redraws in nanoseconds. Default 0ns.
+
+Copilot usage
+-------------
+Build with make (requires a C compiler and ncurses development headers).
+On Ubuntu/Debian: sudo apt install build-essential libncurses-dev pkg-config
+
+Install GitHub CLI (gh), authenticate with gh auth login on github.com, then run:
+
+    ./tty-clock -c -s --copilot
+
+Below the date, the clock displays a bar filled by the percentage consumed,
+with the actual usage on a separate centered line, in the clock's color:
+
+      Copilot [######--------------] 30.5% used
+           60,847.1 / 200,000 credits
+
+The bar uses solid background-colored cells when running. Amounts are shown to one
+decimal place when needed, with thousands separators. Credit-based accounts
+show credits; legacy premium-request accounts show requests. Where available,
+actual usage is calculated from entitlement minus quota_remaining, since the
+API's integer credits_used can be rounded. Unlimited allowances show usage
+without a percentage or denominator when the server supplies it.
+
+Press P to toggle the display. --copilot-refresh 120 changes the refresh interval
+to two minutes. Requests run in the background with a 15-second timeout and do
+not interrupt the clock or keyboard input. Failed refreshes keep the previous
+reading marked stale; unavailable data shows an authentication hint. A missing
+premium allowance is treated as unavailable, not as zero usage. With -D the
+usage appears directly below the clock. On small terminals the bar shrinks and
+long text is clipped safely. Existing screensaver key-exit behavior still applies.
+
+This uses gh api --hostname github.com /copilot_internal/user with the existing
+gh credentials. No browser cookies are needed. The endpoint is internal to
+GitHub and may change. Only enabling the display starts quota requests.
+
+Verification (after building): python3 tests/test_copilot.py
+The tests use a stub gh and pseudo-terminals; they do not access GitHub.

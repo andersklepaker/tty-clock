@@ -48,6 +48,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <ncurses.h>
+#include "copilot.h"
 
 /* Macro */
 #define NORMFRAMEW 35
@@ -79,6 +80,8 @@ typedef struct
           bool utc;
           bool box;
           bool noquit;
+          bool copilot;
+          unsigned int copilot_refresh;
           char format[100];
           int color;
           bool bold;
@@ -113,6 +116,7 @@ typedef struct
      char *meridiem;
      WINDOW *framewin;
      WINDOW *datewin;
+     WINDOW *usagewin;
 
 } ttyclock_t;
 
@@ -127,6 +131,7 @@ void set_second(void);
 void set_center(bool b);
 void set_box(bool b);
 void key_event(void);
+int clock_height(void);
 
 /* Global variable */
 ttyclock_t ttyclock;

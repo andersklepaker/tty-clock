@@ -2,7 +2,8 @@
 #Under BSD License
 #See clock.c for the license detail.
 
-SRC = ttyclock.c ttyclock.h
+SRC = ttyclock.c copilot.c
+HEADERS = ttyclock.h copilot.h
 CC ?= gcc
 BIN ?= tty-clock
 PREFIX ?= /usr/local
@@ -26,10 +27,10 @@ else
 	LDFLAGS += $$(pkg-config --libs ncurses)
 endif
 
-tty-clock : ${SRC}
+tty-clock : ${SRC} ${HEADERS}
 
 	@echo "building ${SRC}"
-	${CC} ${CFLAGS} ${SRC} -o ${BIN} ${LDFLAGS}
+	${CC} ${CFLAGS} ${SRC} -o ${BIN} ${LDFLAGS} -lm
 
 install : ${BIN}
 
@@ -56,4 +57,3 @@ clean :
 	@echo "cleaning ${BIN}"
 	@rm -f ${BIN}
 	@echo "${BIN} cleaned"
-
