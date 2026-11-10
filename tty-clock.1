@@ -8,7 +8,7 @@
 tty\-clock \- a terminal digital clock
 .SH "SYNOPSIS"
 .LP
-\fBtty\-clock [\-iuvsScbtrahDBxn] [\-C [\fI0\-7\fB]] [\-f \fIformat\fB] [\-d \fIdelay\fB] [\-a \fInsdelay\fB] \fB[\-T \fItty\fB]\fR
+\fBtty\-clock [\-iuvsScbtrahDBxn] [\-C [\fI0\-7\fB]] [\-f \fIformat\fB] [\-d \fIdelay\fB] [\-a \fInsdelay\fB] \fB[\-T \fItty\fB] [\-\-theme default|nord]\fR
 .SH "DESCRIPTION"
 .LP
 \fItty\-clock\fR displays a simple digital clock on the terminal. Invoked without options
@@ -25,6 +25,8 @@ These commands have no effect when the \fBcentered\fR option is set.
 .TP
 [0\-7]
 Select a different color for displaying the clock.
+With Nord, select a Nord accent (0 muted, 1 red, 2 green, 3 yellow,
+4 blue, 5 purple, 6 frost, 7 white).
 .TP
 B
 Toggles between bold and normal colors.
@@ -52,6 +54,16 @@ P
 Toggle the Copilot usage display below the date.
 .SH "OPTIONS"
 .LP
+.TP
+\fB\-\-theme\fR \fIname\fR
+Select default terminal colors or the nord theme. Nord fills the terminal
+with a Polar Night background (#2E3440), uses Frost (#88C0D0) for the clock
+and filled Copilot bar, Snow Storm (#D8DEE9) for date and usage text, and
+muted borders. Exact RGB colors are used when palette changes are supported;
+otherwise colors are approximated with the available terminal palette.
+With Nord, \fB\-C\fR and keys 0\-7 select Nord accents; text stays light.
+An explicit \fB\-C\fR takes precedence over the theme's default Frost accent
+regardless of option order.
 .TP
 \fB\-\-copilot\fR
 Show a Copilot consumption progress bar below the date, followed by actual
@@ -124,7 +136,44 @@ Set the delay (in seconds) between two redraws of the clock. Default 1s.
 .TP
 \fB\-a\fR \fInsdelay\fR
 Additional delay (in nanoseconds) between two redraws of the clock. Default 0ns.
+.SH "COPILOT BUDGET"
+.LP
+With \fB\-\-copilot\fR, daily usage and a fixed calendar-day budget appear
+below the allowance. Days and the assumed first-of-month reset use UTC.
+The Today line shows remaining headroom or the percentage over today's budget.
+A second usage graph shows today's measured consumption as a percentage of
+the estimated daily average. 100% is one average day's usage, not the safe
+budget; the bar caps at 100% while the displayed percentage may exceed it.
+Incomplete days graph only consumption since the displayed UTC start time.
+Missing or zero averages are shown explicitly instead of a percentage.
+Incomplete days show unknown daily usage plus consumption since the first
+reading's UTC time. Safe avg shows the maximum average daily usage the
+remaining allowance supports until reset. Month avg or Recent avg shows
+actual consumption and whether it exceeds that safe pace. Forecasts use up
+to seven days of observed consumption, falling back to a monthly average
+after the first hour. The display reports whether the quota should hold
+until reset or estimates an exhaustion date, time and how many days or hours
+before reset it will run out.
+Est. limit by shows the suggested total quota limit: already consumed usage
+plus estimated usage until the displayed reset date at the same average rate,
+but never less than the current limit. Its percentage shows the required
+increase relative to the current limit; no increase means it is sufficient.
+Future-usage and exhaustion estimates use the latest successful measurement.
+The display uses a shared left edge with blank rows separating monthly quota,
+today's usage and the forecast.
+.LP
+History is stored privately in
+\fI$XDG_STATE_HOME/tty-clock/copilot-history\fR, defaulting to
+\fI~/.local/state/tty-clock/copilot-history\fR. No credentials are stored.
+Readings near midnight approximate full days, marked ~.
+Unwritable history uses session tracking, marked [no save].
+Remove the history file when switching GitHub accounts. Forecasts are
+estimates and may be affected by delayed API accounting.
 .SH "EXAMPLES"
+.LP
+Show a centered Nord clock with seconds:
+.IP
+$ tty\-clock \-c \-s \-\-theme nord
 .LP
 Show a centered clock with seconds and Copilot usage:
 .IP

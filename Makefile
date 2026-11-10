@@ -2,8 +2,8 @@
 #Under BSD License
 #See clock.c for the license detail.
 
-SRC = ttyclock.c copilot.c
-HEADERS = ttyclock.h copilot.h
+SRC = ttyclock.c copilot.c copilot_budget.c
+HEADERS = ttyclock.h copilot.h copilot_budget.h
 CC ?= gcc
 BIN ?= tty-clock
 PREFIX ?= /usr/local

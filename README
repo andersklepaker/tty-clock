@@ -1,4 +1,5 @@
-usage : tty-clock [-iuvsScbtrahDBxn] [-C [0-7]] [-f format] [-d delay] [-a nsdelay] [-T tty] [--copilot] [--copilot-refresh seconds]
+usage : tty-clock [-iuvsScbtrahDBxn] [-C [0-7]] [-f format] [-d delay] [-a nsdelay] [-T tty] [--theme default|nord] [--copilot] [--copilot-refresh seconds]
+    --theme name  Set the color theme (default or nord)
     --copilot     Show Copilot usage below the date (P toggles)
     --copilot-refresh seconds  Refresh interval, default 60 (1..86400)
     -s            Show seconds
@@ -21,6 +22,25 @@ usage : tty-clock [-iuvsScbtrahDBxn] [-C [0-7]] [-f format] [-d delay] [-a nsdel
     -d delay      Set the delay between two redraws of the clock. Default 1s.
     -a nsdelay    Additional delay between two redraws in nanoseconds. Default 0ns.
 
+Nord theme
+----------
+Run a centered Nord clock with seconds:
+
+    ./tty-clock -c -s --theme nord
+    ./tty-clock -c -s --theme nord --copilot
+
+Nord uses a Polar Night background (#2E3440), Frost clock and filled usage
+bar (#88C0D0), Snow Storm date and usage text (#D8DEE9), and muted borders.
+The background fills the terminal while the clock runs. Terminals supporting
+palette changes use exact Nord RGB colors; other terminals use the nearest
+available colors. --theme default selects the normal terminal colors.
+
+With Nord active, -C and keys 0-7 select these clock/bar accents:
+0 muted, 1 red, 2 green, 3 yellow, 4 blue, 5 purple, 6 frost (default), 7 white.
+An explicit -C works before or after --theme. Date and usage text stay light.
+
+Verification (after building): python3 tests/test_theme.py
+
 Copilot usage
 -------------
 Build with make (requires a C compiler and ncurses development headers).
@@ -31,10 +51,21 @@ Install GitHub CLI (gh), authenticate with gh auth login on github.com, then run
     ./tty-clock -c -s --copilot
 
 Below the date, the clock displays a bar filled by the percentage consumed,
-with the actual usage on a separate centered line, in the clock's color:
+with the actual usage on a separate left-aligned line, in the clock's color:
 
       Copilot [######--------------] 30.5% used
-           60,847.1 / 200,000 credits
+      60,847.1 / 200,000 credits
+
+      Today UTC: ~8,200 / 6,100 (34% over)
+      Today [####################] 102.5% of daily avg
+
+      Safe avg: 6,000 credits/day
+      Recent avg: 8,000/day (33.3% over safe pace)
+      Est. limit by 01 Dec: 220,847.1 credits (+10.4%)
+      Empty: 24 Nov 14:30 UTC; ~7 days early
+
+The block is centered beneath the clock with a shared left edge. Blank rows
+separate monthly quota, today's usage and the forecast.
 
 The bar uses solid background-colored cells when running. Amounts are shown to one
 decimal place when needed, with thousands separators. Credit-based accounts
@@ -43,8 +74,55 @@ actual usage is calculated from entitlement minus quota_remaining, since the
 API's integer credits_used can be rounded. Unlimited allowances show usage
 without a percentage or denominator when the server supplies it.
 
+The daily budget divides the allowance remaining at the start of the UTC day
+by the calendar days left, including today. It stays fixed during that day.
+The next reset is assumed to be the first of the next month at 00:00 UTC;
+budget days also use UTC, independently of the clock's -u option.
+The Today line shows headroom or the percentage over today's fixed budget.
+The second graph compares measured today's consumption with the estimated
+daily average: 100% means one average day's usage, not 100% of the safe budget.
+The bar fills at 100%, but the percentage can exceed 100%. Incomplete days
+use "Since HH:MM" and graph only consumption observed since that UTC time.
+If the average is missing or zero, the graph says it is not available.
+The graph shrinks on narrow terminals and uses the same accent as the monthly bar.
+"Safe avg" is the maximum average daily consumption the remaining allowance
+can support until reset, based on the latest measurement. "Month avg" or
+"Recent avg" shows your actual average and explicitly says whether that pace
+is within budget or how far above the safe pace it is. The safe average
+changes as you consume quota; it is distinct from today's fixed budget.
+Forecasts use observed consumption over up to seven days (at least 24 hours),
+including time offline. Until enough history exists, "Month avg" uses usage
+divided by elapsed time this month (after the first hour). "At this pace" means
+the remaining allowance should last until reset at that average rate;
+"Empty" estimates when it will run out and how many days (or hours) early.
+The early interval is rounded up and marked approximate. These are estimates,
+not guarantees, and GitHub's accounting can lag behind actual activity.
+"Est. limit by" shows the suggested total quota limit: usage already consumed
+plus estimated usage until the displayed reset date at the same daily average,
+but never less than the current limit. Only the shortfall beyond the remaining
+allowance is added to the current limit. The percentage in parentheses is the
+required increase relative to the current limit, not the daily pace overage;
+"no increase" means the current limit is sufficient. Both the future-usage
+and run-out estimates stay anchored to the latest successful reading if stale.
+
+Only monthly totals are available from the API. Local history is stored in
+$XDG_STATE_HOME/tty-clock/copilot-history (default ~/.local/state/tty-clock),
+with private file permissions, a nonblocking lock and atomic replacement.
+No credentials are stored. First-day or interrupted daily tracking shows
+"Today: unknown" and the amount observed since a displayed UTC start time:
+usage before the first reading is unknown. The average/safe pace comparison
+works after the first hour of the month using the month's totals. Readings spanning midnight
+within five minutes give approximate full-day tracking, marked "~".
+Resets, allowance/unit changes and downward corrections restart tracking.
+History is for one GitHub account; remove this history file when switching
+accounts with the same allowance. Unwritable storage falls back to session
+tracking, marked "[no save]". Unlimited or unavailable quotas have no forecast.
+
 Press P to toggle the display. --copilot-refresh 120 changes the refresh interval
-to two minutes. Requests run in the background with a 15-second timeout and do
+to two minutes. Requests run in the background with a 15-second timeout,
+without client-side caching, and request revalidation of cached responses.
+Intervals are measured between request starts, rather than after completion.
+GitHub may still take time to account for recent usage. Requests do
 not interrupt the clock or keyboard input. Failed refreshes keep the previous
 reading marked stale; unavailable data shows an authentication hint. A missing
 premium allowance is treated as unavailable, not as zero usage. With -D the
@@ -55,5 +133,5 @@ This uses gh api --hostname github.com /copilot_internal/user with the existing
 gh credentials. No browser cookies are needed. The endpoint is internal to
 GitHub and may change. Only enabling the display starts quota requests.
 
-Verification (after building): python3 tests/test_copilot.py
+Verification (after building): python3 -m unittest discover -s tests
 The tests use a stub gh and pseudo-terminals; they do not access GitHub.

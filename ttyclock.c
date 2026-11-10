@@ -33,11 +33,70 @@
 
 #include "ttyclock.h"
 
+/* Background, text, muted detail, then the eight selectable Nord accents. */
+static const unsigned int nord_palette[] = {
+     0x2e3440, 0xd8dee9, 0x4c566a,
+     0x4c566a, 0xbf616a, 0xa3be8c, 0xebcb8b,
+     0x81a1c1, 0xb48ead, 0x88c0d0, 0xeceff4
+};
+static short nord_colors[11];
+
+static short
+theme_color(unsigned int rgb, int slot)
+{
+     /* Round up so terminfo's conversion back to 8-bit RGB is lossless. */
+     short r = (((rgb >> 16) & 255) * 1000 + 254) / 255;
+     short g = (((rgb >> 8) & 255) * 1000 + 254) / 255;
+     short b = ((rgb & 255) * 1000 + 254) / 255;
+     if (COLORS >= 27 && can_change_color() &&
+         init_color(16 + slot, r, g, b) == OK)
+          return 16 + slot;
+
+     /* Fixed palettes get the nearest available color, including ANSI-only terminals. */
+     long best_distance = LONG_MAX;
+     short best = COLOR_WHITE;
+     for (int i = 0; i < COLORS && i < 256; ++i) {
+          short cr, cg, cb;
+          if (color_content(i, &cr, &cg, &cb) == ERR) continue;
+          long dr = r - cr, dg = g - cg, db = b - cb;
+          long distance = dr * dr + dg * dg + db * db;
+          if (distance < best_distance) {
+               best_distance = distance;
+               best = i;
+          }
+     }
+     return best;
+}
+
+static void
+set_clock_color(int color)
+{
+     ttyclock.option.color = color;
+     short accent = ttyclock.option.nord ? nord_colors[color + 3] : color;
+     init_pair(1, ttyclock.bg, accent);
+     init_pair(2, ttyclock.option.nord ? nord_colors[1] : accent, ttyclock.bg);
+}
+
+static void
+init_colors(void)
+{
+     ttyclock.bg = use_default_colors() == OK ? -1 : COLOR_BLACK;
+     if (ttyclock.option.nord) {
+          for (int i = 0; i < 11; ++i)
+               nord_colors[i] = theme_color(nord_palette[i], i);
+          ttyclock.bg = nord_colors[0];
+     }
+     set_clock_color(ttyclock.option.color);
+     init_pair(3, ttyclock.option.nord ? nord_colors[2] :
+                  (ttyclock.bg == -1 ? -1 : COLOR_WHITE), ttyclock.bg);
+     bkgd(COLOR_PAIR(3));
+}
+
 int
 clock_height(void)
 {
      return ttyclock.geo.h + (ttyclock.option.date ? DATEWINH - 1 : 0) +
-            (ttyclock.option.copilot ? 2 : 0);
+            (ttyclock.option.copilot ? COPILOT_ROWS : 0);
 }
 
 /* Pads let the clock be clipped safely when the terminal is very small. */
@@ -51,7 +110,7 @@ refresh_window(WINDOW *win)
           x += ttyclock.geo.w / 2 - w / 2;
      } else if (win == ttyclock.usagewin) {
           y += ttyclock.geo.h + (ttyclock.option.date ? DATEWINH - 1 : 0);
-          w = COLS < 44 ? COLS : 44;
+          w = COLS < COPILOT_WIDTH ? COLS : COPILOT_WIDTH;
           x += ttyclock.geo.w / 2 - w / 2;
      }
      if (x < 0) x = 0;
@@ -67,23 +126,24 @@ static void
 draw_usage(void)
 {
      if (!ttyclock.option.copilot) return;
-     char bar[256], detail[256];
-     int width = COLS < 44 ? COLS : 44;
-     copilot_lines(bar, sizeof(bar), detail, sizeof(detail), width);
+     char lines[COPILOT_ROWS][256];
+     int width = COLS < COPILOT_WIDTH ? COLS : COPILOT_WIDTH;
+     copilot_display_lines(time(NULL), lines, width);
      werase(ttyclock.usagewin);
      wattrset(ttyclock.usagewin, COLOR_PAIR(2) |
               (ttyclock.option.bold ? A_BOLD : 0));
-     for (int row = 0; row < 2; ++row) {
-          const char *text = row ? detail : bar;
+     for (int row = 0; row < COPILOT_ROWS; ++row) {
+          const char *text = lines[row];
           int len = strlen(text);
-          int x = len < width ? (width - len) / 2 : 0;
-          for (int i = 0; i < len && x + i < width; ++i) {
+          for (int i = 0; i < len && i < width; ++i) {
                chtype ch = (unsigned char)text[i];
-               if (!row && copilot.valid && !copilot.unlimited) {
+               if ((row == 0 || row == COPILOT_TODAY_GRAPH_ROW) &&
+                   copilot.valid && !copilot.unlimited) {
                     if (ch == '#') ch = ' ' | COLOR_PAIR(1);
-                    if (ch == '-') ch = ACS_CKBOARD | A_DIM;
+                    if (ch == '-') ch = ACS_CKBOARD | A_DIM |
+                                        (ttyclock.option.nord ? COLOR_PAIR(3) : 0);
                }
-               mvwaddch(ttyclock.usagewin, row, x + i, ch);
+               mvwaddch(ttyclock.usagewin, row, i, ch);
           }
      }
      refresh_window(ttyclock.usagewin);
@@ -118,17 +178,7 @@ init(void)
      curs_set(false);
      clear();
 
-     /* Init default terminal color */
-     if(use_default_colors() == OK)
-          ttyclock.bg = -1;
-
-     /* Init color pair */
-     init_pair(0, ttyclock.bg, ttyclock.bg);
-     init_pair(1, ttyclock.bg, ttyclock.option.color);
-     init_pair(2, ttyclock.option.color, ttyclock.bg);
-//     init_pair(0, ttyclock.bg, ttyclock.bg);
-//     init_pair(1, ttyclock.bg, ttyclock.option.color);
-//     init_pair(2, ttyclock.option.color, ttyclock.bg);
+     init_colors();
      refresh();
 
      /* Init signal handler */
@@ -168,6 +218,7 @@ init(void)
           fprintf(stderr, "tty-clock: cannot allocate clock window\n");
           exit(EXIT_FAILURE);
      }
+     wbkgd(ttyclock.framewin, COLOR_PAIR(3));
      if(ttyclock.option.box) {
           box(ttyclock.framewin, 0, 0);
      }
@@ -179,12 +230,14 @@ init(void)
 
      /* Create the date win */
      ttyclock.datewin = newpad(DATEWINH, strlen(ttyclock.date.datestr) + 2);
-     ttyclock.usagewin = newpad(2, 256);
+     ttyclock.usagewin = newpad(COPILOT_ROWS, 256);
      if (!ttyclock.framewin || !ttyclock.datewin || !ttyclock.usagewin) {
           endwin();
           fprintf(stderr, "tty-clock: cannot allocate clock windows\n");
           exit(EXIT_FAILURE);
      }
+     wbkgd(ttyclock.datewin, COLOR_PAIR(3));
+     wbkgd(ttyclock.usagewin, COLOR_PAIR(3));
      if(ttyclock.option.box && ttyclock.option.date) {
           box(ttyclock.datewin, 0, 0);
      }
@@ -299,7 +352,7 @@ draw_number(int n, int x, int y)
           else
                wattroff(ttyclock.framewin, A_BLINK);
 
-          wbkgdset(ttyclock.framewin, COLOR_PAIR(number[n][i/2]));
+          wbkgdset(ttyclock.framewin, COLOR_PAIR(number[n][i/2] ? 1 : 3));
           mvwaddch(ttyclock.framewin, x, sy, ' ');
      }
      refresh_window(ttyclock.framewin);
@@ -370,8 +423,8 @@ clock_move(int x, int y, int w, int h)
 {
      int max_x = LINES - clock_height();
      int max_y = COLS - w;
-     if (ttyclock.option.copilot && COLS >= 44 && w < 44) {
-          int margin = (44 - w + 1) / 2;
+     if (ttyclock.option.copilot && COLS >= COPILOT_WIDTH && w < COPILOT_WIDTH) {
+          int margin = (COPILOT_WIDTH - w + 1) / 2;
           if (y < margin) y = margin;
           max_y -= margin;
      }
@@ -381,12 +434,12 @@ clock_move(int x, int y, int w, int h)
      if (y < 0) y = 0;
      erase();
      refresh();
-     wbkgdset(ttyclock.framewin, COLOR_PAIR(0));
+     wbkgdset(ttyclock.framewin, COLOR_PAIR(3));
      werase(ttyclock.framewin);
 
      if (ttyclock.option.date)
      {
-          wbkgdset(ttyclock.datewin, COLOR_PAIR(0));
+          wbkgdset(ttyclock.datewin, COLOR_PAIR(3));
           wborder(ttyclock.datewin, ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ');
           werase(ttyclock.datewin);
      }
@@ -427,12 +480,12 @@ clock_rebound(void)
           ttyclock.geo.a = 1;
      if(ttyclock.geo.x >= (LINES - clock_height()))
           ttyclock.geo.a = -1;
-     if(ttyclock.geo.y <= (ttyclock.option.copilot && ttyclock.geo.w < 44 ?
-                           (44 - ttyclock.geo.w + 1) / 2 : 0))
+     if(ttyclock.geo.y <= (ttyclock.option.copilot && ttyclock.geo.w < COPILOT_WIDTH ?
+                            (COPILOT_WIDTH - ttyclock.geo.w + 1) / 2 : 0))
           ttyclock.geo.b = 1;
      if(ttyclock.geo.y >= (COLS - ttyclock.geo.w - 1 -
-                            (ttyclock.option.copilot && ttyclock.geo.w < 44 ?
-                             (44 - ttyclock.geo.w + 1) / 2 : 0)))
+                             (ttyclock.option.copilot && ttyclock.geo.w < COPILOT_WIDTH ?
+                              (COPILOT_WIDTH - ttyclock.geo.w + 1) / 2 : 0)))
           ttyclock.geo.b = -1;
 
      clock_move(ttyclock.geo.x + ttyclock.geo.a,
@@ -479,12 +532,12 @@ set_box(bool b)
 {
      ttyclock.option.box = b;
 
-     wbkgdset(ttyclock.framewin, COLOR_PAIR(0));
-     wbkgdset(ttyclock.datewin, COLOR_PAIR(0));
+     wbkgdset(ttyclock.framewin, COLOR_PAIR(3));
+     wbkgdset(ttyclock.datewin, COLOR_PAIR(3));
 
      if(ttyclock.option.box) {
-          wbkgdset(ttyclock.framewin, COLOR_PAIR(0));
-          wbkgdset(ttyclock.datewin, COLOR_PAIR(0));
+          wbkgdset(ttyclock.framewin, COLOR_PAIR(3));
+          wbkgdset(ttyclock.datewin, COLOR_PAIR(3));
           box(ttyclock.framewin, 0, 0);
           box(ttyclock.datewin,  0, 0);
      }
@@ -526,9 +579,7 @@ key_event(void)
                for(i = 0; i < 8; ++i)
                     if(c == (i + '0'))
                     {
-                         ttyclock.option.color = i;
-                         init_pair(1, ttyclock.bg, i);
-                         init_pair(2, i, ttyclock.bg);
+                         set_clock_color(i);
                     }
           }
           return;
@@ -625,9 +676,7 @@ key_event(void)
      case '0': case '1': case '2': case '3':
      case '4': case '5': case '6': case '7':
           i = c - '0';
-          ttyclock.option.color = i;
-          init_pair(1, ttyclock.bg, i);
-          init_pair(2, i, ttyclock.bg);
+          set_clock_color(i);
           break;
 
      default:
@@ -641,9 +690,11 @@ int
 main(int argc, char **argv)
 {
      int c;
+     bool color_selected = false;
      static const struct option long_options[] = {
           {"copilot", no_argument, NULL, 256},
           {"copilot-refresh", required_argument, NULL, 257},
+          {"theme", required_argument, NULL, 258},
           {NULL, 0, NULL, 0}
      };
 
@@ -682,9 +733,20 @@ main(int argc, char **argv)
                ttyclock.option.copilot_refresh = interval;
                break;
           }
+          case 258:
+               if (!strcmp(optarg, "nord"))
+                    ttyclock.option.nord = true;
+               else if (!strcmp(optarg, "default"))
+                    ttyclock.option.nord = false;
+               else {
+                    fprintf(stderr, "tty-clock: unknown theme '%s' (use default or nord)\n", optarg);
+                    return EXIT_FAILURE;
+               }
+               break;
           case 'h':
           default:
-               printf("usage : tty-clock [-iuvsScbtrahDBxn] [-C [0-7]] [-f format] [-d delay] [-a nsdelay] [-T tty] [--copilot] [--copilot-refresh seconds]\n"
+               printf("usage : tty-clock [-iuvsScbtrahDBxn] [-C [0-7]] [-f format] [-d delay] [-a nsdelay] [-T tty] [--theme default|nord] [--copilot] [--copilot-refresh seconds]\n"
+                      "    --theme name  Set the color theme (default or nord)\n"
                       "    --copilot     Show Copilot usage below the date (P toggles)   \n"
                       "    --copilot-refresh seconds  Refresh interval, default 60 (1..86400)\n"
                       "    -s            Show seconds                                   \n"
@@ -732,8 +794,10 @@ main(int argc, char **argv)
                ttyclock.option.bold = true;
                break;
           case 'C':
-               if(atoi(optarg) >= 0 && atoi(optarg) < 8)
+               if(atoi(optarg) >= 0 && atoi(optarg) < 8) {
                     ttyclock.option.color = atoi(optarg);
+                    color_selected = true;
+               }
                break;
           case 't':
                ttyclock.option.twelve = true;
@@ -782,6 +846,8 @@ main(int argc, char **argv)
           }
      }
 
+     if (ttyclock.option.nord && !color_selected)
+          ttyclock.option.color = 6; /* Nord Frost */
      init();
      attron(A_BLINK);
      while(ttyclock.running)

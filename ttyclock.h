@@ -37,6 +37,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <getopt.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -81,6 +82,7 @@ typedef struct
           bool box;
           bool noquit;
           bool copilot;
+          bool nord;
           unsigned int copilot_refresh;
           char format[100];
           int color;

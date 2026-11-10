@@ -22,10 +22,12 @@ class CopilotTests(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory()
         cls.folder = Path(cls.temp.name)
         cls.original_path = os.environ["PATH"]
+        cls.original_state = os.environ.get("XDG_STATE_HOME")
+        os.environ["XDG_STATE_HOME"] = str(cls.folder / "state")
         os.environ["PATH"] = str(cls.folder) + os.pathsep + cls.original_path
         cls.gh = cls.folder / "gh"
         subprocess.run(["cc", "-Wall", "-Wextra", "-shared", "-fPIC",
-                        str(ROOT / "copilot.c"), "-lm", "-o",
+                        str(ROOT / "copilot.c"), str(ROOT / "copilot_budget.c"), "-lm", "-o",
                         str(cls.folder / "copilot.so")], check=True)
         cls.lib = ctypes.CDLL(str(cls.folder / "copilot.so"))
         cls.lib.copilot_tick.argtypes = [ctypes.c_bool, ctypes.c_uint]
@@ -36,6 +38,10 @@ class CopilotTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.lib.copilot_cleanup()
         os.environ["PATH"] = cls.original_path
+        if cls.original_state is None:
+            os.environ.pop("XDG_STATE_HOME", None)
+        else:
+            os.environ["XDG_STATE_HOME"] = cls.original_state
         cls.temp.cleanup()
 
     def stub(self, text, delay=0, status=0):
@@ -127,6 +133,17 @@ class CopilotTests(unittest.TestCase):
         output = self.ui(["-c", "-s", "--copilot"], b"pPsbxctq", resize=True)
         self.assertIn(b"30.5% used", output)
         self.assertIn(b"60,847.1 / 200,000 credits", output)
+        self.assertTrue(b"Today: unknown" in output or b"Today UTC:" in output)
+        self.assertIn(b"Safe avg:", output)
+        self.assertIn(b"Est. limit by", output)
+        self.assertTrue(b"of daily avg" in output or b"daily average not available" in output)
+        self.assertTrue(b"At this pace:" in output or b"Empty:" in output or
+                        b"forecast pending" in output)
+        output = self.ui(["-c", "--theme", "nord", "--copilot"])
+        self.assertIn(b"30.5% used", output)
+        self.assertIn(b"60,847.1 / 200,000 credits", output)
+        self.assertIn(b"\x1b[48;5;25m", output)
+        self.assertIn(b"\x1b[38;5;17m", output)
         self.ui(["-r", "-D", "--copilot"], resize=True)
         self.stub("", status=1)
         self.assertIn(b"unavailable", self.ui(["--copilot"]))
@@ -140,6 +157,27 @@ class CopilotTests(unittest.TestCase):
                                     capture_output=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(b"1..86400", result.stderr)
+
+    def test_default_refresh_updates_display(self):
+        log = self.folder / "refresh-times"
+        self.gh.write_text(
+            "#!/usr/bin/python3\nimport sys, time\n"
+            "from pathlib import Path\n"
+            "assert 'Cache-Control: no-cache' in sys.argv\n"
+            f"log = Path({str(log)!r})\n"
+            "with log.open('a') as f: f.write(str(time.monotonic()) + '\\n')\n"
+            "count = len(log.read_text().splitlines())\n"
+            "print('quota 69.5 200000 139152.9 60847 0 1 1' if count == 1 "
+            "else 'quota 50 200000 100000 100000 0 1 1')\n")
+        self.gh.chmod(0o755)
+        output = self.ui(["--copilot"], wait=64)
+        timestamps = [float(t) for t in log.read_text().splitlines()]
+        self.assertEqual(len(timestamps), 2)
+        self.assertAlmostEqual(timestamps[1] - timestamps[0], 60, delta=1.5)
+        self.assertIn(b"30.5% used", output)
+        # ncurses updates only changed cells, leaving the suffix on screen.
+        self.assertIn(b"50.0", output)
+        self.assertIn(b"100,000", output)
 
 
 if __name__ == "__main__":
